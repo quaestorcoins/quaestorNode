@@ -1,0 +1,27 @@
+# /etc/conf.d/quaestord: config file for /etc/init.d/quaestord
+
+# Config file location
+#BITCOIND_CONFIGFILE="/etc/quaestor/quaestor.conf"
+
+# What directory to write pidfile to?  (created and owned by $BITCOIND_USER)
+#BITCOIND_PIDDIR="/var/run/quaestord"
+
+# What filename to give the pidfile
+#BITCOIND_PIDFILE="${BITCOIND_PIDDIR}/quaestord.pid"
+
+# Where to write quaestord data (be mindful that the blockchain is large)
+#BITCOIND_DATADIR="/var/lib/quaestord"
+
+# User and group to own quaestord process
+#BITCOIND_USER="quaestor"
+#BITCOIND_GROUP="quaestor"
+
+# Path to quaestord executable
+#BITCOIND_BIN="/usr/bin/quaestord"
+
+# Nice value to run quaestord under
+#BITCOIND_NICE=0
+
+# Additional options (avoid -conf and -datadir, use flags above)
+BITCOIND_OPTS="-disablewallet"
+

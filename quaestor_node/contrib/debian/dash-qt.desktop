@@ -1,0 +1,12 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=Quaestor
+Comment=Quaestor P2P Cryptocurrency
+Comment[fr]=Quaestor, monnaie virtuelle cryptographique pair à pair
+Comment[tr]=Quaestor, eşten eşe kriptografik sanal para birimi
+Exec=quaestor-qt %u
+Terminal=false
+Type=Application
+Icon=quaestor128
+MimeType=x-scheme-handler/quaestor;
+Categories=Office;Finance;
