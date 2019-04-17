@@ -1575,13 +1575,8 @@ int64_t GetBlockValue(int nBits, int nHeight, const CAmount& nFees)
         nSubsidy = 60000;
     else
         nSubsidy = 7;
-    if (nHeight >= 76999) {
-        return nSubsidy * COIN + nFees;
-    } else {
-        return nSubsidy * COIN;
-    }
+    return nSubsidy * COIN;
 }
-
 
 int64_t GetMasternodePayment(int nHeight, int64_t blockValue)
 {
@@ -2027,70 +2022,20 @@ static int64_t nTimeIndex = 0;
 static int64_t nTimeCallbacks = 0;
 static int64_t nTimeTotal = 0;
 
-void checkEachMnReceive(std::vector<CMasternode>& sortedMn, int64_t seconds, CMasternode mnNode)
-{
-    bool inserted = false;
-    if (sortedMn.size() > 0) {
-        for (size_t j = 0; j < sortedMn.size(); ++j) {
-            int64_t activeSeconds = (sortedMn[j].lastPing == CMasternodePing()) ? 0 :
-                                                                                  (int64_t)(sortedMn[j].lastPing.sigTime - sortedMn[j].sigTime);
-            if (activeSeconds <= seconds) {
-                inserted = true;
-                sortedMn.insert(sortedMn.begin() + j, mnNode);
-                break;
-            }
-        }
-    } else {
-        inserted = true;
-        sortedMn.push_back(mnNode);
-    }
-    if (!inserted) {
-        sortedMn.push_back(mnNode);
-    }
-}
-std::vector<CMasternode> sortMNRec(std::vector<CMasternode>& vMasternodes)
-{
-    std::vector<CMasternode> sortedMn;
-    BOOST_FOREACH (CMasternode mnNode, vMasternodes) {
-        int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 : (int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
-        checkEachMnReceive(sortedMn, activeSeconds, mnNode);
-    }
-    return sortedMn;
-}
-void SelectMNForReward(std::vector<CMasternode>& Masternodes, CBitcoinAddress lastRewardedMN, CScript& selectedMNScript)
-{
-    // Getting MN Vector
-    std::vector<CMasternode> vMasternodes = sortMNRec(Masternodes);
-    bool lastRewardedMNFound = false;
-    bool mnSelected = false;
-    BOOST_FOREACH (CMasternode& mnNode, vMasternodes) {
-        int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 :
-                                                                         (int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
-        CBitcoinAddress MnAddress(mnNode.pubkey.GetID());
-        bool matchAddress = CBitcoinAddress::compareAddresses(MnAddress, lastRewardedMN);
-        if (activeSeconds >= 86400 && matchAddress) {
-            lastRewardedMNFound = true;
-        } else if (lastRewardedMNFound && activeSeconds >= 86400) {
-            mnSelected = true;
-            selectedMNScript = GetScriptForDestination(mnNode.pubkey.GetID());
-            break;
-        }
-    }
-    if ((lastRewardedMNFound && !mnSelected) || (!lastRewardedMNFound && !mnSelected)) {
-        CBitcoinAddress MnAddress(vMasternodes.at(0).pubkey.GetID());
-        LogPrintf("Seleted Masternode %s\n", MnAddress.ToString().c_str());
-        selectedMNScript = GetScriptForDestination(vMasternodes.at(0).pubkey.GetID());
-    }
-}
 bool checkMnExist(CBitcoinAddress addressReceived)
 {
     std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
     if (vMasternodes.size() > 0) {
         BOOST_FOREACH (CMasternode& mn, vMasternodes) {
-                            CBitcoinAddress MnAddress(mn.pubkey.GetID());
+                           CScript payee = GetScriptForDestination(mn.pubkey.GetID());
+                            CTxDestination address1;
+                            ExtractDestination(payee, address1);
+                            CBitcoinAddress address2(address1);
                             // LogPrintf("CheckBlock() : skipping transaction locking checks\n");
-                            bool addressesMatch = CBitcoinAddress::compareAddresses(addressReceived, MnAddress);
+                            LogPrintf("checkMnExist() MN Address to compare %s \n ",address2.ToString());
+                            bool addressesMatch = CBitcoinAddress::compareAddresses(addressReceived, address1);
                             if (addressesMatch) {
+                                LogPrintf("checkMnExist() MN Address Match case\n ");
                                 return true;
                             }
         }
@@ -2101,6 +2046,7 @@ bool checkMnExist(CBitcoinAddress addressReceived)
     LogPrintf("checkMnExist() Masternode Address in Tx Not found \n ");
     return false;
 }
+
 bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view, bool fJustCheck)
 {
     AssertLockHeld(cs_main);
@@ -2199,86 +2145,61 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 return false;
             control.Add(vChecks);
         }
-        CBlockIndex* currenBlockIndex = chainActive.Tip();
-        if (currenBlockIndex->nHeight >= 77000) {
-            if (tx.IsCoinBase()) {
-                if (tx.vout.size() <= 2) {
-                    CScript pubScript = tx.vout[0].scriptPubKey;
-                    CTxDestination address1;
+        if (tx.IsCoinBase()) {
+            if (tx.vout.size() == 1) {
+                CScript pubScript = tx.vout[0].scriptPubKey;
+                CTxDestination address1;
 
-                    CBitcoinAddress addressToCompare;
-                    ExtractDestination(pubScript, address1);
-                    CBitcoinAddress address2(address1);
-                    if (Params().NetworkID() == CBaseChainParams::MAIN) {
-                        CBitcoinAddress live_miner("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
-                        addressToCompare = live_miner;
-                        // addressToCompare("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
-                    } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
-                        CBitcoinAddress test_miner("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
-                        addressToCompare = test_miner;
-                        // addressToCompare("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
-                    }
-                    bool verifyAddresses = CBitcoinAddress::compareAddresses(address2, addressToCompare);
-                    if (!verifyAddresses) {
-                        if (CheckForSyncStatus()) {
-                            std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
-                            CBlockIndex* pindexPrev = chainActive.Tip();
-                            CBlock lastBlock;
-                            if (ReadBlockFromDisk(lastBlock, pindexPrev)) {
-                                // Handle if not able to read block
-                                CTransaction& tx = lastBlock.vtx[0];
-                                if (tx.IsCoinBase()) {
-                                    CScript selectedMN;
-                                    CScript pubScript = tx.vout[0].scriptPubKey;
-                                    CTxDestination lastReceivedMn;
-                                    ExtractDestination(pubScript, lastReceivedMn);
-                                    CBitcoinAddress lastReceivedMnaddress(lastReceivedMn);
-                                    LogPrintf("Last Rewarded Received Masternode %s\n", lastReceivedMnaddress.ToString().c_str());
-                                    SelectMNForReward(vMasternodes, lastReceivedMnaddress, selectedMN);
-                                    CTxDestination currentBlockDesTx;
-                                    ExtractDestination(selectedMN, currentBlockDesTx);
-                                    CBitcoinAddress addresscurrentBlockDesTx(currentBlockDesTx);
-                                    bool paidToRightMN = CBitcoinAddress::compareAddresses(address2, addresscurrentBlockDesTx);
-                                    if (!paidToRightMN) {
-                                        LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
-                                         return state.DoS(100, error("Wring Mn Rewarded"),
-                                     REJECT_INVALID, "bad-blk-sigops");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                   return state.DoS(100, error("Invalid Value out length"),
-                                     REJECT_INVALID, "bad-blk-sigops");
+                CBitcoinAddress addressToCompare;
+                ExtractDestination(pubScript, address1);
+                CBitcoinAddress address2(address1);
+                if (Params().NetworkID() == CBaseChainParams::MAIN) {
+                    CBitcoinAddress live_miner("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
+                    addressToCompare = live_miner;
+                    // addressToCompare("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
+                    LogPrintf("Hard Coded Miner Address %s \n",addressToCompare.ToString());
+                } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
+                    CBitcoinAddress test_miner("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
+                    addressToCompare = test_miner;
+                    // addressToCompare("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
+                    LogPrintf("Hard Coded Miner Address %s \n",addressToCompare.ToString());
                 }
-            }
-        }
-		else{
-			 CBlockIndex* pindexPrev = chainActive.Tip();
-             CBlock lastBlock;
-			  if (ReadBlockFromDisk(lastBlock, pindexPrev)) {
-                                // Handle if not able to read block
-                                CTransaction& tx = lastBlock.vtx[0];
-                                if (tx.IsCoinBase()) {
-									 BOOST_FOREACH (const CTxOut& txout, tx.vout) {
-                            CScript pubScript = txout.scriptPubKey;
+                LogPrintf("Connect() Address in coinbase Transaction %s \n",address2.ToString());
+                bool verifyAddresses = CBitcoinAddress::compareAddresses(address2, addressToCompare);
+                if (!verifyAddresses)
+                {
+                    LogPrintf("Hard Coded Miner Address Failed to Match \n");
+                    if (CheckForSyncStatus())
+                    {
+                        bool checkExist = checkMnExist(address2);
+                        if(!checkExist)
+                             return state.DoS(100,
+                                     error("ConnectBlock() : coinbase pays too much (actual=%d vs limit=%d)",
+                                           block.vtx[0].GetValueOut(), GetBlockValue(pindex->pprev->nBits, pindex->pprev->nHeight, nFees)),
+                                     REJECT_INVALID, "bad-cb-amount");
+                    }
+                }
+            LogPrintf("Hard Coded Miner Address Match \n");
+            } else {
+                if (CheckForSyncStatus()) {
+                        BOOST_FOREACH (const CTxOut& txout, tx.vout) {
+                            CScript pubScript = tx.vout[0].scriptPubKey;
                             CTxDestination address1;
                             ExtractDestination(pubScript, address1);
                             CBitcoinAddress address2(address1);
-							CBitcoinAddress live_miner("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
-							bool liveMinerAddressMatch = CBitcoinAddress::compareAddresses(live_miner, address2);
-							if(!liveMinerAddressMatch && CheckForSyncStatus()){	
-		                    bool checkExist = checkMnExist(address2);
-							if(!checkExist){
-								 return state.DoS(100, error("Invalid MN payment detected before 77000 blocks"),
-                                     REJECT_INVALID, "bad-blk-sigops");
+                            LogPrintf("Connect() Address in coinbase Transaction %s \n",address2.ToString());
+                            bool checkExist = checkMnExist(address2);
+                            if(!checkExist){
+                                  return state.DoS(100,
+                                     error("ConnectBlock() : coinbase pays too much (actual=%d vs limit=%d)",
+                                           block.vtx[0].GetValueOut(), GetBlockValue(pindex->pprev->nBits, pindex->pprev->nHeight, nFees)),
+                                     REJECT_INVALID, "bad-cb-amount");
                             }
-							}
-						}
                         }
-					}
-			 }
+                }
+            }
+        }
+
         CTxUndo undoDummy;
         if (i > 0) {
             blockundo.vtxundo.push_back(CTxUndo());
@@ -3168,26 +3089,26 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     // ----------- masternode payments / budgets -----------
 
-    // CBlockIndex* pindexPrev = chainActive.Tip();
-    // if (pindexPrev != NULL) {
-    //     int nHeight = 0;
-    //     if (pindexPrev->GetBlockHash() == block.hashPrevBlock) {
-    //         nHeight = pindexPrev->nHeight + 1;
-    //     } else { //out of order
-    //         BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
-    //         if (mi != mapBlockIndex.end() && (*mi).second)
-    //             nHeight = (*mi).second->nHeight + 1;
-    //     }
+    CBlockIndex* pindexPrev = chainActive.Tip();
+    if (pindexPrev != NULL) {
+        int nHeight = 0;
+        if (pindexPrev->GetBlockHash() == block.hashPrevBlock) {
+            nHeight = pindexPrev->nHeight + 1;
+        } else { //out of order
+            BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
+            if (mi != mapBlockIndex.end() && (*mi).second)
+                nHeight = (*mi).second->nHeight + 1;
+        }
 
-    //     if (nHeight != 0) {
-    //         if (!IsBlockPayeeValid(block.vtx[0], nHeight)) {
-    //             mapRejectedBlocks.insert(make_pair(block.GetHash(), GetTime()));
-    //             return state.DoS(100, error("CheckBlock() : Couldn't find masternode/budget payment"));
-    //         }
-    //     } else {
-    //         LogPrintf("CheckBlock() : WARNING: Couldn't find previous block, skipping IsBlockPayeeValid()\n");
-    //     }
-    // }
+        if (nHeight != 0) {
+            if (!IsBlockPayeeValid(block.vtx[0], nHeight)) {
+                mapRejectedBlocks.insert(make_pair(block.GetHash(), GetTime()));
+                return state.DoS(100, error("CheckBlock() : Couldn't find masternode/budget payment"));
+            }
+        } else {
+            LogPrintf("CheckBlock() : WARNING: Couldn't find previous block, skipping IsBlockPayeeValid()\n");
+        }
+    }
 
     // -------------------------------------------
 
@@ -3482,13 +3403,13 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, CBlock* pblock, CDis
     if (!ActivateBestChain(state, pblock))
         return error("%s : ActivateBestChain failed", __func__);
 
-    // if (!fLiteMode) {
-    //     if (masternodeSync.RequestedMasternodeAssets > MASTERNODE_SYNC_LIST) {
-    //         darkSendPool.NewBlock();
-    //         masternodePayments.ProcessBlock(GetHeight() + 10);
-    //         budget.NewBlock();
-    //     }
-    // }
+    if (!fLiteMode) {
+        if (masternodeSync.RequestedMasternodeAssets > MASTERNODE_SYNC_LIST) {
+            darkSendPool.NewBlock();
+            masternodePayments.ProcessBlock(GetHeight() + 10);
+            budget.NewBlock();
+        }
+    }
 
     LogPrintf("%s : ACCEPTED\n", __func__);
     return true;

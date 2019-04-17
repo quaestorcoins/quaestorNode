@@ -26,6 +26,10 @@
 #include "json/json_spirit_utils.h"
 #include "json/json_spirit_value.h"
 
+#include "json/json_spirit_utils.h"
+#include "json/json_spirit_value.h"
+#include "json/json_spirit_reader_template.h"
+
 using namespace boost;
 using namespace boost::assign;
 using namespace json_spirit;
@@ -242,20 +246,9 @@ Value listunspent(const Array& params, bool fHelp)
     int nMaxDepth = 9999999;
     if (params.size() > 1)
         nMaxDepth = params[1].get_int();
-
-    set<CBitcoinAddress> setAddress;
-    if (params.size() > 2) {
-        Array inputs = params[2].get_array();
-        BOOST_FOREACH(Value& input, inputs) {
-            CBitcoinAddress address(input.get_str());
-            if (!address.IsValid())
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Quaestor address: ")+input.get_str());
-            if (setAddress.count(address))
-                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+input.get_str());
-           setAddress.insert(address);
-        }
-    }
-
+	string account="";
+	 if (params.size() > 2)
+        account = params[2].get_int();
     Array results;
     vector<COutput> vecOutputs;
     assert(pwalletMain != NULL);
@@ -264,26 +257,17 @@ Value listunspent(const Array& params, bool fHelp)
         if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
             continue;
 
-        if (setAddress.size()) {
-            CTxDestination address;
-            if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address))
-                continue;
-
-            if (!setAddress.count(address))
-                continue;
-        }
-
         CAmount nValue = out.tx->vout[out.i].nValue;
         const CScript& pk = out.tx->vout[out.i].scriptPubKey;
         Object entry;
-        entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
-        entry.push_back(Pair("vout", out.i));
         CTxDestination address;
         if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
             entry.push_back(Pair("address", CBitcoinAddress(address).ToString()));
             if (pwalletMain->mapAddressBook.count(address))
                 entry.push_back(Pair("account", pwalletMain->mapAddressBook[address].name));
         }
+		 entry.push_back(Pair("txid", out.tx->GetHash().GetHex()));
+         entry.push_back(Pair("vout", out.i));
         entry.push_back(Pair("scriptPubKey", HexStr(pk.begin(), pk.end())));
         if (pk.IsPayToScriptHash()) {
             CTxDestination address;
@@ -303,6 +287,155 @@ Value listunspent(const Array& params, bool fHelp)
     return results;
 }
 #endif
+
+
+struct unspentAccountStr
+	{
+  		CAmount amount;
+		CAmount pendingbalance;
+  		string address;
+		string account;
+		string scriptpubkey;
+		int index;
+		string txid;
+		int txcount=0;
+	};
+bool updateAccountDetails(vector<unspentAccountStr>& results, string addressToCompare, CAmount amount,bool pending){
+	bool updated = false;
+	if(!results.empty()){
+		for(size_t i=0;i<results.size();i++){
+			if(results[i].address == addressToCompare)
+			{
+				if(pending)
+				results[i].pendingbalance+=amount;
+				else
+				results[i].amount+=amount;
+				results[i].txcount+=1;
+				updated=true;
+				break;
+			}
+		}
+	}
+	return updated;
+}
+bool checkAddressExist(string addressToCompare, string account){
+	bool exist = false;
+	BOOST_FOREACH(const PAIRTYPE(CBitcoinAddress, CAddressBookData)& item, pwalletMain->mapAddressBook)
+    {
+        const CBitcoinAddress& address = item.first;
+        const string& strName = item.second.name;
+		if(strName == account && address.ToString()==addressToCompare){
+			exist = true;
+			break;
+		}
+    }
+	return exist;
+}
+bool compareAndPushAddresses(vector<unspentAccountStr>& results,string addressToCompare){
+	bool found = false;
+	if(!results.empty()){
+		for(size_t i=0;i<results.size();i++){
+			if(results[i].address == addressToCompare)
+			{
+				found= true;
+				break;
+			}
+		}
+	}
+	return found;
+}
+Value listunspentaccount(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 1)
+        throw runtime_error(
+            "Just Account Name is required");
+    // RPCTypeCheck(params, list_of(str_type));
+	Array finalresultSet;
+	CAmount totalBalance=0;
+	CAmount totalpending=0;
+
+	Array results;
+    vector<unspentAccountStr> resultsset;
+    int nMinDepth = 0;
+    int nMaxDepth = 9999999;
+	 if (params.size() > 0) {
+	string accountName=params[0].get_str();
+	string accountInUnspent;
+    vector<COutput> vecOutputs;
+    assert(pwalletMain != NULL);
+    pwalletMain->AvailableCoins(vecOutputs, false);
+
+    BOOST_FOREACH(const COutput& out, vecOutputs) {
+		struct unspentAccountStr unspentobj;
+		bool pendingFlag=false;
+		Object entry;
+        if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
+            continue;
+		 CTxDestination address;
+        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
+            if (pwalletMain->mapAddressBook.count(address)){
+				accountInUnspent = pwalletMain->mapAddressBook[address].name;
+			}
+        }
+
+		if(accountInUnspent==accountName && !accountInUnspent.empty()){
+			CAmount nValue = out.tx->vout[out.i].nValue;
+			if(out.nDepth<2)
+			pendingFlag=true;
+			if(!updateAccountDetails(resultsset,CBitcoinAddress(address).ToString(),nValue,pendingFlag)){
+			if(pendingFlag){
+				unspentobj.pendingbalance=nValue;
+				unspentobj.amount=0;
+			}
+			else{
+			unspentobj.pendingbalance=0;
+			unspentobj.amount = nValue;
+			}
+			unspentobj.address = CBitcoinAddress(address).ToString();
+			unspentobj.txcount+=1;
+			resultsset.push_back(unspentobj);
+			}
+    		}
+		}
+	BOOST_FOREACH(const PAIRTYPE(CBitcoinAddress, CAddressBookData)& item, pwalletMain->mapAddressBook)
+    {
+        const CBitcoinAddress& address = item.first;
+		 const string& strName = item.second.name;
+		 if(strName!=accountName)
+		 continue;
+		if(!compareAndPushAddresses(resultsset,address.ToString()))
+		{
+			struct unspentAccountStr newunspentobj;
+			newunspentobj.pendingbalance=0;
+			newunspentobj.amount = 0;
+			newunspentobj.txcount=0;
+			newunspentobj.address = CBitcoinAddress(address).ToString();
+			resultsset.push_back(newunspentobj);
+		}
+    }
+		// Create JSON Response
+		for(size_t j=0;j<resultsset.size();++j){
+			Object entry;
+			totalBalance+=resultsset[j].amount;
+			totalpending+=resultsset[j].pendingbalance;
+			entry.push_back(Pair("address",resultsset[j].address));
+			entry.push_back(Pair("pendingbalance",ValueFromAmount(resultsset[j].pendingbalance)));
+			entry.push_back(Pair("amount",ValueFromAmount(resultsset[j].amount)));
+			entry.push_back(Pair("transactionCount",resultsset[j].txcount));
+			results.push_back(entry);
+		}
+		// Object confimedBalance;
+		// confimedBalance.push_back(Pair("totalbalance",ValueFromAmount(totalbalance)));
+		// finalresultSet.push_back(confimedBalance);
+		Object addressesDetails;
+		addressesDetails.push_back(Pair("totalpending",ValueFromAmount(totalpending)));
+		addressesDetails.push_back(Pair("totalbalance",ValueFromAmount(totalBalance)));
+		addressesDetails.push_back(Pair("addressesdetails",results));
+		finalresultSet.push_back(addressesDetails);
+}
+return finalresultSet;
+}
+
 
 Value createrawtransaction(const Array& params, bool fHelp)
 {

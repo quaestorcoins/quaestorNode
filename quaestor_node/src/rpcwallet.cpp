@@ -348,6 +348,100 @@ void SendMoney(const CTxDestination &address, CAmount nValue, CWalletTx& wtxNew,
         throw JSONRPCError(RPC_WALLET_ERROR, "Error: The transaction was rejected! This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.");
 }
 
+Value sendtransaction(const Array& params, bool fHelp){
+	if (fHelp || params.size() < 6 || params.size() > 6)
+        throw runtime_error(
+			"sendtransaction quaestoraddress(address) amount(integer) changeaddress(address) account(string) deductfee(boolean) \n"
+		);
+
+	CBitcoinAddress receiverAddress(params[0].get_str());
+	const CAmount nAmount = AmountFromValue(params[1]);
+	if(nAmount<0)
+	        throw JSONRPCError(RPC_INVALID_AMOUNT, "Invalid amount detected");
+
+	CBitcoinAddress changeAddress(params[2].get_str());
+    if (!receiverAddress.IsValid() || !changeAddress.IsValid())
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Quaestor address detected");
+	string account=params[3].get_str();
+	bool deductfee = params[5].get_bool();
+	CAmount includeFee= AmountFromValue(params[4]);
+	bool fUseIX=false;
+	bool sendMulti = false;
+	string strError;
+    if (pwalletMain->IsLocked())
+    {
+        strError = "Error: Wallet locked, unable to create transaction!";
+        LogPrintf("SendMoney() : %s", strError);
+        throw JSONRPCError(RPC_WALLET_ERROR, strError);
+    }
+	vector<COutput> fCoins;
+	EnsureWalletIsUnlocked();
+	const CTxDestination receiverDestiny = receiverAddress.Get();
+	const CTxDestination changeDestiny = changeAddress.Get();
+    CScript receiverscriptPubKey = GetScriptForDestination(receiverDestiny);
+    CScript changescriptPubKey = GetScriptForDestination(changeDestiny);
+
+	 set<pair<const CWalletTx*, unsigned int> > setCoins;
+     CAmount valueInFromUnspent = 0;
+	 CAmount nTotalValue =0 ;
+	 CAmount valueReturned = 0;
+	nTotalValue=nAmount+includeFee;
+	if(deductfee)
+	nTotalValue=nAmount;
+
+	if(!pwalletMain->ChooseInstantCoins(account,nTotalValue, setCoins,fCoins,valueReturned, NULL, ALL_COINS, false)){
+		 throw JSONRPCError(RPC_WALLET_ERROR, "Insufficient Balance");
+	}
+	if(valueReturned<nAmount){
+		 throw JSONRPCError(RPC_WALLET_ERROR, "Insufficient Balance");
+	}
+	size_t MAX_MULTI_LIMIT = 300;
+	size_t startIndex = 0;
+	size_t endIndex = MAX_MULTI_LIMIT;
+	if(fCoins.size()>MAX_MULTI_LIMIT){
+			while(nTotalValue>0){
+			CWalletTx  multiTx;
+			CAmount amountToSendInMulti = 0;
+			CAmount totalVinSendInMulti =0 ;
+			if(endIndex>fCoins.size())
+			endIndex=fCoins.size();
+			for(size_t j=startIndex;j<endIndex;++j){
+				const CWalletTx* pcoin = fCoins.at(j).tx;
+        		int pointer = fCoins.at(j).i;
+				totalVinSendInMulti+=pcoin->vout[pointer].nValue;
+			}
+			if(totalVinSendInMulti<nTotalValue){
+			amountToSendInMulti=totalVinSendInMulti;
+			nTotalValue-=amountToSendInMulti;
+			}
+			else{
+			amountToSendInMulti=nTotalValue;
+			nTotalValue-=nTotalValue;
+			}
+			if(pwalletMain->CreateAndSendTransaction(true,startIndex, endIndex, setCoins,amountToSendInMulti,includeFee,false,multiTx, strError,totalVinSendInMulti,fCoins,account,changescriptPubKey,receiverscriptPubKey))
+				pwalletMain->CommitTransaction(multiTx, (!fUseIX ? "tx" : "ix"));
+			startIndex = startIndex + MAX_MULTI_LIMIT;
+			endIndex+=MAX_MULTI_LIMIT;
+			}
+		return "Multiple transaction has been sent Successfully";
+	}else{
+		CWalletTx  wtxNew;
+		startIndex=0;
+		endIndex=fCoins.size();		
+		for(size_t j=0;j<fCoins.size();++j){
+				const CWalletTx* pcoin = fCoins.at(j).tx;
+        		int pointer = fCoins.at(j).i;
+				valueInFromUnspent+=pcoin->vout[pointer].nValue;
+			}
+		if(!pwalletMain->CreateAndSendTransaction(sendMulti,startIndex, endIndex, setCoins,nAmount,includeFee,deductfee,wtxNew, strError,valueInFromUnspent,fCoins,account,changescriptPubKey,receiverscriptPubKey)){
+			throw JSONRPCError(RPC_WALLET_ERROR, strError);
+		}
+		if (!pwalletMain->CommitTransaction(wtxNew, (!fUseIX ? "tx" : "ix")))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Error: The transaction was rejected! This might happen if some of the coins in your wallet were already spent");
+		return wtxNew.GetHash().GetHex();
+
+	}
+}
 Value sendtoaddress(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 2 || params.size() > 4)

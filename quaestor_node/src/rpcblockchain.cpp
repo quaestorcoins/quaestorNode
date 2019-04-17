@@ -9,7 +9,7 @@
 #include "rpcserver.h"
 #include "sync.h"
 #include "util.h"
-
+#include "base58.h"
 #include <stdint.h>
 
 #include "json/json_spirit_value.h"
@@ -318,7 +318,143 @@ Value getblock(const Array& params, bool fHelp)
 
     return blockToJSON(block, pblockindex);
 }
+Value getblockbyno(const Array& params, bool fHelp)
+{
+	Object finalresultSet;
+	Array transactions;
+    if (fHelp || params.size() < 1 || params.size() > 2)
+        throw runtime_error(
+            "getblock \"hash\" ( verbose )\n"
+            "\nIf verbose is false, returns a string that is serialized, hex-encoded data for block 'hash'.\n"
+            "If verbose is true, returns an Object with information about block <hash>.\n"
+            "\nArguments:\n"
+            "1. \"hash\"          (string, required) The block hash\n"
+            "2. verbose           (boolean, optional, default=true) true for a json object, false for the hex encoded data\n"
+            "\nResult (for verbose = true):\n"
+            "{\n"
+            "  \"hash\" : \"hash\",     (string) the block hash (same as provided)\n"
+            "  \"confirmations\" : n,   (numeric) The number of confirmations, or -1 if the block is not on the main chain\n"
+            "  \"size\" : n,            (numeric) The block size\n"
+            "  \"height\" : n,          (numeric) The block height or index\n"
+            "  \"version\" : n,         (numeric) The block version\n"
+            "  \"merkleroot\" : \"xxxx\", (string) The merkle root\n"
+            "  \"tx\" : [               (array of string) The transaction ids\n"
+            "     \"transactionid\"     (string) The transaction id\n"
+            "     ,...\n"
+            "  ],\n"
+            "  \"time\" : ttt,          (numeric) The block time in seconds since epoch (Jan 1 1970 GMT)\n"
+            "  \"nonce\" : n,           (numeric) The nonce\n"
+            "  \"bits\" : \"1d00ffff\", (string) The bits\n"
+            "  \"difficulty\" : x.xxx,  (numeric) The difficulty\n"
+            "  \"previousblockhash\" : \"hash\",  (string) The hash of the previous block\n"
+            "  \"nextblockhash\" : \"hash\"       (string) The hash of the next block\n"
+            "}\n"
+            "\nResult (for verbose=false):\n"
+            "\"data\"             (string) A string that is serialized, hex-encoded data for block 'hash'.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getblock", "\"00000000000fd08c2fb661d2fcb0d49abb3a91e5f27082ce64feed3b4dede2e2\"")
+            + HelpExampleRpc("getblock", "\"00000000000fd08c2fb661d2fcb0d49abb3a91e5f27082ce64feed3b4dede2e2\"")
+        );
+	int nHeight = params[0].get_int();
+    if (nHeight < 0 || nHeight > chainActive.Height())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");
 
+    CBlockIndex* pblockindexx = chainActive[nHeight];
+    string blockHash = pblockindexx->GetBlockHash().GetHex();
+	finalresultSet.push_back(Pair("blockhash",blockHash));
+    std::string strHash = blockHash;
+    uint256 hash(strHash);
+
+    bool fVerbose = true;
+
+    if (mapBlockIndex.count(hash) == 0)
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+
+    CBlock block;
+    CBlockIndex* pblockindex = mapBlockIndex[hash];
+
+    if(!ReadBlockFromDisk(block, pblockindex))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Can't read block from disk");
+
+    if (!fVerbose)
+    {
+        CDataStream ssBlock(SER_NETWORK, PROTOCOL_VERSION);
+        ssBlock << block;
+        std::string strHex = HexStr(ssBlock.begin(), ssBlock.end());
+        return strHex;
+    }
+	BOOST_FOREACH (const CTransaction& tx, block.vtx) {
+		Object transaction;
+		Object txObj;
+		Array vouts;
+		Array vins;
+		CAmount totalvalueIn = 0;
+		Object in;
+		if(tx.IsCoinBase()){
+			Object vinObj;
+			vinObj.push_back(Pair("coinbase", HexStr(tx.vin[0].scriptSig.begin(), tx.vin[0].scriptSig.end())));
+			vinObj.push_back(Pair("sequence", (int64_t)tx.vin[0].nSequence));
+			vins.push_back(vinObj);
+			transaction.push_back(Pair("iscoinbase",true));
+		}
+		else{
+			CTransaction txOut;
+    		uint256 hashBlock = 0;
+			BOOST_FOREACH (const CTxIn& txin, tx.vin) {
+			Object vinObj;
+			vinObj.push_back(Pair("txid", txin.prevout.hash.GetHex()));
+            vinObj.push_back(Pair("vout", (int64_t)txin.prevout.n));
+            Object o;
+            o.push_back(Pair("asm", txin.scriptSig.ToString()));
+            o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
+			GetTransaction(txin.prevout.hash,txOut,hashBlock,true);
+			CAmount valueIn = txOut.vout[txin.prevout.n].nValue;
+			CScript scriptOutput = txOut.vout[txin.prevout.n].scriptPubKey;
+			 vinObj.push_back(Pair("value",ValueFromAmount(valueIn)));
+             CTxDestination address1;
+             ExtractDestination(scriptOutput, address1);
+             CBitcoinAddress address2(address1);
+			 vinObj.push_back(Pair("sequence", (int64_t)txin.nSequence));
+			 vinObj.push_back(Pair("scriptSig", o));
+			 vinObj.push_back(Pair("addr",address2.ToString()));
+			 vins.push_back(vinObj);
+			 totalvalueIn+=valueIn;
+			}
+			transaction.push_back(Pair("valuein",ValueFromAmount(totalvalueIn)));
+			transaction.push_back(Pair("iscoinbase",false));
+		}
+		CAmount totalvalueOut = 0;
+		BOOST_FOREACH (const CTxOut& txout, tx.vout) {
+			int64_t i = 0;
+			Object voutObj;
+			totalvalueOut+=txout.nValue;
+			 voutObj.push_back(Pair("value",ValueFromAmount(txout.nValue)));
+			 CScript pubScript = txout.scriptPubKey;
+             CTxDestination address1;
+             ExtractDestination(pubScript, address1);
+             CBitcoinAddress address2(address1);
+			 voutObj.push_back(Pair("n", (int64_t)i));
+			 voutObj.push_back(Pair("addr",address2.ToString()));
+			  Object o;
+	    	  ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
+    	     voutObj.push_back(Pair("scriptPubKey", o));
+			 vouts.push_back(voutObj);
+			 i++;
+			}
+		if(tx.IsCoinBase())
+		transaction.push_back(Pair("fee",ValueFromAmount(0)));
+		else
+		transaction.push_back(Pair("fee",ValueFromAmount(totalvalueIn-totalvalueOut)));
+		transaction.push_back(Pair("valueout",ValueFromAmount(totalvalueOut)));
+		transaction.push_back(Pair("hash",tx.GetHash().ToString()));
+		transaction.push_back(Pair("vin",vins));
+		transaction.push_back(Pair("vout",vouts));
+		transactions.push_back(transaction);
+	}
+	Object jsonBlock = blockToJSON(block, pblockindex);
+	jsonBlock.push_back(Pair("transactions",transactions));
+    return jsonBlock;
+}
 Value getblockheader(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1 || params.size() > 2)

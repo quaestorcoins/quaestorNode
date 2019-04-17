@@ -115,7 +115,38 @@ Value getpoolinfo(const Array& params, bool fHelp)
     return obj;
 }
 
-
+void checkEachMnSorted(std::vector<CMasternode>& sortedMn, int64_t seconds, CMasternode mnNode)
+{
+	bool inserted =false;
+    if (sortedMn.size() > 0) {
+        for (size_t j = 0; j < sortedMn.size(); ++j) {
+            // int64_t activeSeconds = (sortedMn[j].lastPing == CMasternodePing()) ? 0 :
+            //                                                                       (int64_t)(sortedMn[j].lastPing.sigTime - sortedMn[j].sigTime);
+			int64_t activeSeconds = sortedMn[j].sigTime;
+            if (activeSeconds >= seconds) {
+				inserted = true;
+                sortedMn.insert(sortedMn.begin() + j, mnNode);
+				break;
+            }
+        }
+    } else {
+		inserted = true;
+        sortedMn.push_back(mnNode);
+    }
+	if(!inserted){ 
+		 sortedMn.push_back(mnNode);
+	}
+}
+std::vector<CMasternode> sortRMN(std::vector<CMasternode>& vMasternodes)
+{
+    std::vector<CMasternode> sortedMn;
+    BOOST_FOREACH (CMasternode mnNode, vMasternodes) {
+        // int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 :(int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
+		 int64_t activeSeconds = mnNode.sigTime;
+         checkEachMnSorted(sortedMn, activeSeconds, mnNode);
+    }
+	return sortedMn;
+}
 Value masternode(const Array& params, bool fHelp)
 {
     string strCommand;
@@ -153,7 +184,8 @@ Value masternode(const Array& params, bool fHelp)
     if(strCommand=="listnodes"){
          Array arr;
          Object resultObj;
-        std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
+        std::vector<CMasternode> Masternodes = mnodeman.GetFullMasternodeVector();
+		std::vector<CMasternode> vMasternodes = sortRMN(Masternodes);
         BOOST_FOREACH(CMasternode& mn, vMasternodes) {
             Object obj;
             //  obj.push_back(Pair("IP:port",       winner->addr.ToString()));
