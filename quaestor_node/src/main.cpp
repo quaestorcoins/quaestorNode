@@ -2032,9 +2032,10 @@ void checkEachMnReceive(std::vector<CMasternode>& sortedMn, int64_t seconds, CMa
     bool inserted = false;
     if (sortedMn.size() > 0) {
         for (size_t j = 0; j < sortedMn.size(); ++j) {
-            int64_t activeSeconds = (sortedMn[j].lastPing == CMasternodePing()) ? 0 :
-                                                                                  (int64_t)(sortedMn[j].lastPing.sigTime - sortedMn[j].sigTime);
-            if (activeSeconds <= seconds) {
+            // int64_t activeSeconds = (sortedMn[j].lastPing == CMasternodePing()) ? 0 :
+            //                                                                       (int64_t)(sortedMn[j].lastPing.sigTime - sortedMn[j].sigTime);
+            int64_t activeSeconds = sortedMn[j].sigTime;
+			if (activeSeconds >= seconds) {
                 inserted = true;
                 sortedMn.insert(sortedMn.begin() + j, mnNode);
                 break;
@@ -2052,8 +2053,9 @@ std::vector<CMasternode> sortMNRec(std::vector<CMasternode>& vMasternodes)
 {
     std::vector<CMasternode> sortedMn;
     BOOST_FOREACH (CMasternode mnNode, vMasternodes) {
-        int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 : (int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
-        checkEachMnReceive(sortedMn, activeSeconds, mnNode);
+        // int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 : (int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
+        int64_t activeSeconds = mnNode.sigTime;
+		checkEachMnReceive(sortedMn, activeSeconds, mnNode);
     }
     return sortedMn;
 }
@@ -2221,12 +2223,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     bool verifyAddresses = CBitcoinAddress::compareAddresses(address2, addressToCompare);
                     if (!verifyAddresses) {
                         if (CheckForSyncStatus()) {
-                            std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
-                            CBlockIndex* pindexPrev = chainActive.Tip();
+							  CBlockIndex* pindexPrev = chainActive.Tip();
                             CBlock lastBlock;
-                            if (ReadBlockFromDisk(lastBlock, pindexPrev)) {
+							 if (ReadBlockFromDisk(lastBlock, pindexPrev)) {
+                            std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
                                 // Handle if not able to read block
-                                CTransaction& tx = lastBlock.vtx[0];
+                                const CTransaction& tx = lastBlock.vtx[0];
                                 if (tx.IsCoinBase()) {
                                     CScript selectedMN;
                                     CScript pubScript = tx.vout[0].scriptPubKey;
@@ -2238,14 +2240,18 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                     CTxDestination currentBlockDesTx;
                                     ExtractDestination(selectedMN, currentBlockDesTx);
                                     CBitcoinAddress addresscurrentBlockDesTx(currentBlockDesTx);
+									 LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
                                     bool paidToRightMN = CBitcoinAddress::compareAddresses(address2, addresscurrentBlockDesTx);
                                     if (!paidToRightMN) {
-                                        LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
+                                         CValidationState Currstate;
+                                        CBlockIndex* pblockindexss = mapBlockIndex[block.GetHash()];
+                                        InvalidateBlock(Currstate, pblockindexss);  
+                                               LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
                                          return state.DoS(100, error("Wring Mn Rewarded"),
                                      REJECT_INVALID, "bad-blk-sigops");
                                     }
                                 }
-                            }
+							 }
                         }
                     }
                 } else {
@@ -2255,11 +2261,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
         }
 		else{
-			 CBlockIndex* pindexPrev = chainActive.Tip();
-             CBlock lastBlock;
-			  if (ReadBlockFromDisk(lastBlock, pindexPrev)) {
+
                                 // Handle if not able to read block
-                                CTransaction& tx = lastBlock.vtx[0];
+                                const CTransaction& tx = block.vtx[0];
                                 if (tx.IsCoinBase()) {
 									 BOOST_FOREACH (const CTxOut& txout, tx.vout) {
                             CScript pubScript = txout.scriptPubKey;
@@ -2271,13 +2275,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 							if(!liveMinerAddressMatch && CheckForSyncStatus()){	
 		                    bool checkExist = checkMnExist(address2);
 							if(!checkExist){
-								 return state.DoS(100, error("Invalid MN payment detected before 77000 blocks"),
+                            CValidationState Currstate;
+                            CBlockIndex* pblockindexss = mapBlockIndex[block.GetHash()];
+                            InvalidateBlock(Currstate, pblockindexss);  
+                            return state.DoS(100, error("Invalid MN payment detected before 77000 blocks"),
                                      REJECT_INVALID, "bad-blk-sigops");
                             }
 							}
 						}
                         }
-					}
 			 }
         CTxUndo undoDummy;
         if (i > 0) {
