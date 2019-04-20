@@ -2220,6 +2220,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         addressToCompare = test_miner;
                         // addressToCompare("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
                     }
+					LogPrintf("Current Rewarded Node %s\n", address2.ToString().c_str());
                     bool verifyAddresses = CBitcoinAddress::compareAddresses(address2, addressToCompare);
                     if (!verifyAddresses) {
                         if (CheckForSyncStatus()) {
@@ -2235,9 +2236,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                     CTxDestination lastReceivedMn;
                                     ExtractDestination(pubScript, lastReceivedMn);
                                     CBitcoinAddress lastReceivedMnaddress(lastReceivedMn);
-                                    LogPrintf("Last Rewarded Received Masternode %s\n", lastReceivedMnaddress.ToString().c_str());
+									LogPrintf("Last Rewarded Node %s\n", lastReceivedMnaddress.ToString().c_str());
+								   bool isItMiner = CBitcoinAddress::compareAddresses(lastReceivedMnaddress, addressToCompare);
+                                   if(!isItMiner){
                                     SelectMNForReward(vMasternodes, lastReceivedMnaddress, selectedMN);
-                                    CTxDestination currentBlockDesTx;
+									CTxDestination currentBlockDesTx;
                                     ExtractDestination(selectedMN, currentBlockDesTx);
                                     CBitcoinAddress addresscurrentBlockDesTx(currentBlockDesTx);
 									 LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
@@ -2250,6 +2253,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                          return state.DoS(100, error("Wring Mn Rewarded"),
                                      REJECT_INVALID, "bad-blk-sigops");
                                     }
+									}
+									else{
+										 bool checkExist = checkMnExist(address2);
+										if(!checkExist){
+                           				 CValidationState Currstate;
+                           				 CBlockIndex* pblockindexss = mapBlockIndex[block.GetHash()];
+                           				 InvalidateBlock(Currstate, pblockindexss);  
+                            			return state.DoS(100, error("Not a valid Masternode 77000 blocks"),
+                                     	REJECT_INVALID, "bad-blk-sigops");
+                            			}
+									}
                                 }
 							 }
                         }
