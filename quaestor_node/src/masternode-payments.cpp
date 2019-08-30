@@ -191,9 +191,9 @@ bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount
 {
 	    LogPrintf("IsBlockValueValid Executed\n");
 	int64_t actualAmountUnlocked = (nExpectedValue / 100000000) - (nFees / 100000000);
-	if(height<=11)
+	if(height<=100000)
 	return true;
-	if(height==167999 && actualAmountUnlocked == 50000)
+	else if(height==167999 && actualAmountUnlocked == 50000)
 	 return true;
 	else if(actualAmountUnlocked == 7)
 	 return true;
