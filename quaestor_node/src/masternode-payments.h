@@ -31,7 +31,7 @@ bool IsReferenceNode(CTxIn& vin);
 bool IsBlockPayeeValid(const CTransaction& txNew, int nBlockHeight);
 std::string GetRequiredPaymentsString(int nBlockHeight);
 bool CheckForSyncStatus();
-bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue);
+bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount nFees,int height);
 void FillBlockPayee(CMutableTransaction& txNew, int64_t nFees);
 
 void DumpMasternodePayments();

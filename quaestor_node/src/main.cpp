@@ -1575,11 +1575,17 @@ int64_t GetBlockValue(int nBits, int nHeight, const CAmount& nFees)
         nSubsidy = 60000;
     else
         nSubsidy = 7;
+	if(nHeight==167999){
+		return 50000 * COIN + nFees;
+	}
     if (nHeight >= 76999) {
         return nSubsidy * COIN + nFees;
-    } else {
+    } 
+	else {
         return nSubsidy * COIN;
     }
+	
+	
 }
 
 
@@ -2204,10 +2210,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         CBlockIndex* currenBlockIndex = chainActive.Tip();
         if (currenBlockIndex->nHeight >= 77000) {
             if (tx.IsCoinBase()) {
+				LogPrintf("Miner Rewarded Vouts Size %s\n",tx.vout.size());
                 if (tx.vout.size() <= 2) {
-                    CScript pubScript = tx.vout[0].scriptPubKey;
+					for(size_t minerIterator=0;minerIterator<tx.vout.size();minerIterator++)
+                    {
+					CScript pubScript = tx.vout[minerIterator].scriptPubKey;
                     CTxDestination address1;
-
                     CBitcoinAddress addressToCompare;
                     ExtractDestination(pubScript, address1);
                     CBitcoinAddress address2(address1);
@@ -2220,54 +2228,13 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         addressToCompare = test_miner;
                         // addressToCompare("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
                     }
-					LogPrintf("Current Rewarded Node %s\n", address2.ToString().c_str());
-                    bool verifyAddresses = CBitcoinAddress::compareAddresses(address2, addressToCompare);
-                    if (!verifyAddresses) {
-                        if (CheckForSyncStatus()) {
-							  CBlockIndex* pindexPrev = chainActive.Tip();
-                            CBlock lastBlock;
-							 if (ReadBlockFromDisk(lastBlock, pindexPrev)) {
-                            std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
-                                // Handle if not able to read block
-                                const CTransaction& tx = lastBlock.vtx[0];
-                                if (tx.IsCoinBase()) {
-                                    CScript selectedMN;
-                                    CScript pubScript = tx.vout[0].scriptPubKey;
-                                    CTxDestination lastReceivedMn;
-                                    ExtractDestination(pubScript, lastReceivedMn);
-                                    CBitcoinAddress lastReceivedMnaddress(lastReceivedMn);
-									LogPrintf("Last Rewarded Node %s\n", lastReceivedMnaddress.ToString().c_str());
-								   bool isItMiner = CBitcoinAddress::compareAddresses(lastReceivedMnaddress, addressToCompare);
-                                   if(!isItMiner){
-                                    SelectMNForReward(vMasternodes, lastReceivedMnaddress, selectedMN);
-									CTxDestination currentBlockDesTx;
-                                    ExtractDestination(selectedMN, currentBlockDesTx);
-                                    CBitcoinAddress addresscurrentBlockDesTx(currentBlockDesTx);
-									 LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
-                                    bool paidToRightMN = CBitcoinAddress::compareAddresses(address2, addresscurrentBlockDesTx);
-                                    if (!paidToRightMN) {
-                                         CValidationState Currstate;
-                                        CBlockIndex* pblockindexss = mapBlockIndex[block.GetHash()];
-                                        InvalidateBlock(Currstate, pblockindexss);  
-                                               LogPrintf("Rewarded MN Needs to be %s\n", addresscurrentBlockDesTx.ToString().c_str());
-                                         return state.DoS(100, error("Wring Mn Rewarded"),
+					LogPrintf("Reward Receiver in tx is %s\n", address2.ToString().c_str());
+				    bool isItMiner = CBitcoinAddress::compareAddresses(address2, addressToCompare);
+					if(!isItMiner)
+					return state.DoS(100, error("Invalid Reward Receiver"),
                                      REJECT_INVALID, "bad-blk-sigops");
-                                    }
-									}
-									else{
-										 bool checkExist = checkMnExist(address2);
-										if(!checkExist){
-                           				 CValidationState Currstate;
-                           				 CBlockIndex* pblockindexss = mapBlockIndex[block.GetHash()];
-                           				 InvalidateBlock(Currstate, pblockindexss);  
-                            			return state.DoS(100, error("Not a valid Masternode 77000 blocks"),
-                                     	REJECT_INVALID, "bad-blk-sigops");
-                            			}
-									}
-                                }
-							 }
-                        }
-                    }
+					}
+					LogPrintf("Hurrah Miner Verified \n");
                 } else {
                    return state.DoS(100, error("Invalid Value out length"),
                                      REJECT_INVALID, "bad-blk-sigops");
@@ -2275,8 +2242,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
         }
 		else{
-
-                                // Handle if not able to read block
+            // Handle if not able to read block
                                 const CTransaction& tx = block.vtx[0];
                                 if (tx.IsCoinBase()) {
 									 BOOST_FOREACH (const CTxOut& txout, tx.vout) {
@@ -2313,10 +2279,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     LogPrint("bench", "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime1 - nTimeStart), 0.001 * (nTime1 - nTimeStart) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime1 - nTimeStart) / (nInputs - 1), nTimeConnect * 0.000001);
 
 
-    if (!IsBlockValueValid(block, GetBlockValue(pindex->pprev->nBits, pindex->pprev->nHeight, nFees))) {
+    if (!IsBlockValueValid(block, GetBlockValue(pindex->pprev->nBits, pindex->pprev->nHeight, nFees),nFees,pindex->pprev->nHeight)) {
         return state.DoS(100,
-                         error("ConnectBlock() : coinbase pays too much (actual=%d vs limit=%d)",
-                               block.vtx[0].GetValueOut(), GetBlockValue(pindex->pprev->nBits, pindex->pprev->nHeight, nFees)),
+                         error("ConnectBlock() : coinbase pays too much (actual=%d vs limit=%d vs Height=%d vs nFees=%d)",
+                               block.vtx[0].GetValueOut(), GetBlockValue(pindex->pprev->nBits, pindex->pprev->nHeight, nFees),pindex->pprev->nHeight,nFees),
                          REJECT_INVALID, "bad-cb-amount");
     }
 

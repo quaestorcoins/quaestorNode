@@ -2324,6 +2324,10 @@ bool CWallet::ConvertList(std::vector<CTxIn> vCoins, std::vector<int64_t>& vecAm
 
 bool CWallet::CreateAndSendTransaction(bool sendMulti, size_t start, size_t end, set<pair<const CWalletTx*, unsigned int> >& setCoinsRet, CAmount amountToSend, CAmount feetodeduct, bool deductFee, CWalletTx& wtxNew, std::string& strFailReason, CAmount valueInFromUnspent, vector<COutput>& fCoins, std::string& accountName, CScript changescriptPubKey, CScript receiverscriptPubKey)
 {
+	CBitcoinAddress minerAddress("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
+	const CTxDestination minerDestiny = minerAddress.Get();
+	CScript minerscriptPubKey = GetScriptForDestination(minerDestiny);
+
     wtxNew.fTimeReceivedIsTxTime = true;
     wtxNew.BindWallet(this);
     CMutableTransaction txNew;
@@ -2336,13 +2340,36 @@ bool CWallet::CreateAndSendTransaction(bool sendMulti, size_t start, size_t end,
         coinsSelected.insert(make_pair(out.tx, out.i));
     }
 
-    CAmount valueToSend = 0;
+    CAmount valueToSend = 0, nChangeCommisssion = 0;
+	CAmount commission = amountToSend * 0.002 - feetodeduct;
+	CAmount minerCommission = 0;
+	        CAmount nChange = 0;
 
-    if (deductFee)
-        valueToSend = amountToSend - feetodeduct;
-    else
-        valueToSend = amountToSend;
-    if (sendMulti) {
+    if (deductFee && amountToSend <= 10000000000)
+	{
+	        valueToSend = amountToSend - (commission + feetodeduct);
+			feetodeduct = commission + feetodeduct;
+			nChange = valueInFromUnspent - (valueToSend + feetodeduct);
+	}
+	else if(!deductFee && amountToSend <= 10000000000)
+	{
+			valueToSend = amountToSend;
+			feetodeduct = commission + feetodeduct;
+			nChange = valueInFromUnspent - valueToSend - feetodeduct;
+	}
+	else if (deductFee && amountToSend > 10000000000)
+	{
+	        valueToSend = amountToSend - (commission + feetodeduct);
+			minerCommission = commission ;
+            nChange = valueInFromUnspent - (valueToSend + feetodeduct + minerCommission);
+	}
+	else if(!deductFee && amountToSend > 10000000000)
+	{
+			valueToSend = amountToSend;
+			minerCommission = commission;
+			nChange = valueInFromUnspent - valueToSend - minerCommission - feetodeduct;
+	}
+	if (sendMulti) {
         valueToSend = amountToSend - feetodeduct;
     }
     vector<pair<CScript, CAmount> > vecSend;
@@ -2362,14 +2389,16 @@ bool CWallet::CreateAndSendTransaction(bool sendMulti, size_t start, size_t end,
             }
             txNew.vout.push_back(txout);
         }
-        CAmount nChange = 0;
-        if (!deductFee)
-            nChange = valueInFromUnspent - valueToSend - feetodeduct;
-        else
-            nChange = valueInFromUnspent - (valueToSend + feetodeduct);
+        // if (!deductFee)
+        //     nChange = valueInFromUnspent - valueToSend - feetodeduct;
+        // else
+        //     nChange = valueInFromUnspent - (valueToSend + feetodeduct);
+
+		
 
         vector<pair<CScript, CAmount> > vecChange;
-        vecChange.push_back(make_pair(changescriptPubKey, nChange));
+
+		vecChange.push_back(make_pair(changescriptPubKey, nChange));
         BOOST_FOREACH (const PAIRTYPE(CScript, CAmount) & s, vecChange) {
             CTxOut txoutChange(s.second, s.first);
             if (txoutChange.IsDust(::minRelayTxFee)) {
@@ -2378,6 +2407,24 @@ bool CWallet::CreateAndSendTransaction(bool sendMulti, size_t start, size_t end,
                 txNew.vout.push_back(txoutChange);
             }
         }
+
+		if(minerCommission>0)
+		{
+		int vIterator=0;
+        vecChange.push_back(make_pair(minerscriptPubKey, minerCommission));
+		 BOOST_FOREACH (const PAIRTYPE(CScript, CAmount) & s, vecChange) {
+            CTxOut txoutChange(s.second, s.first);
+            if (txoutChange.IsDust(::minRelayTxFee)) {
+                minerCommission = 0;
+            } else {
+				if(vIterator==1){
+                txNew.vout.push_back(txoutChange);
+				}
+            }
+			vIterator++;
+        }
+		}
+
         // Fill vin
         BOOST_FOREACH (const PAIRTYPE(const CWalletTx*, unsigned int) & coin, coinsSelected)
             txNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second));

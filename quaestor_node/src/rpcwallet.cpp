@@ -385,9 +385,12 @@ Value sendtransaction(const Array& params, bool fHelp){
      CAmount valueInFromUnspent = 0;
 	 CAmount nTotalValue =0 ;
 	 CAmount valueReturned = 0;
-	nTotalValue=nAmount+includeFee;
+	CAmount commission = nAmount * 0.002;
 	if(deductfee)
 	nTotalValue=nAmount;
+	else
+	nTotalValue=nAmount+commission;
+
 
 	if(!pwalletMain->ChooseInstantCoins(account,nTotalValue, setCoins,fCoins,valueReturned, NULL, ALL_COINS, false)){
 		 throw JSONRPCError(RPC_WALLET_ERROR, "Insufficient Balance");

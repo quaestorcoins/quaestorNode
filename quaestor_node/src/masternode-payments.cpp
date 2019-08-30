@@ -2,10 +2,10 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #include "masternode-payments.h"
+#include "addrman.h"
 #include "chainparams.h"
 #include "checkpoints.h"
 #include "checkqueue.h"
-#include "addrman.h"
 #include "darksend.h"
 #include "masternode-budget.h"
 #include "masternode-sync.h"
@@ -187,8 +187,16 @@ void DumpMasternodePayments()
     LogPrintf("Budget dump finished  %dms\n", GetTimeMillis() - nStart);
 }
 
-bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue)
+bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount nFees,int height)
 {
+	    LogPrintf("IsBlockValueValid Executed\n");
+	int64_t actualAmountUnlocked = (nExpectedValue / 100000000) - (nFees / 100000000) ;
+	if(height==167999 && actualAmountUnlocked == 50000)
+	 return true;
+	else if(actualAmountUnlocked == 7)
+	 return true;
+	else
+	 return false;
     CBlockIndex* pindexPrev = chainActive.Tip();
     if (pindexPrev == NULL)
         return true;
@@ -295,63 +303,132 @@ std::string GetRequiredPaymentsString(int nBlockHeight)
     }
 }
 
-void makeCoinBaseTransactionForCustomMiner(CAmount amountToDistribute,CMutableTransaction& txNew, int64_t nFees){
+void makeCoinBaseTransactionForCustomMiner(CAmount amountToDistribute, CMutableTransaction& txNew, int64_t nFees)
+{
     CScript receiveScript;
- if(Params().NetworkID() == CBaseChainParams::MAIN){
-                CBitcoinAddress live_miner("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
-                receiveScript = GetScriptForDestination(live_miner.Get());
-            }
-            else if(Params().NetworkID() == CBaseChainParams::TESTNET){
-                CBitcoinAddress test_miner("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
-                receiveScript = GetScriptForDestination(test_miner.Get());
-            }
-            txNew.vout.resize(1);
-            txNew.vout[0].scriptPubKey = receiveScript;
-            txNew.vout[0].nValue = amountToDistribute;
+    if (Params().NetworkID() == CBaseChainParams::MAIN) {
+        CBitcoinAddress live_miner("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
+        receiveScript = GetScriptForDestination(live_miner.Get());
+    } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
+        CBitcoinAddress test_miner("TUej4rf1NXxUQxMhm2KkxbJvX939RsCsW5");
+        receiveScript = GetScriptForDestination(test_miner.Get());
+    }
+   if(nFees > 0)
+    {
+    txNew.vout.resize(2);
+    txNew.vout[0].scriptPubKey = receiveScript;
+    txNew.vout[0].nValue = amountToDistribute - nFees;
+    txNew.vout[1].scriptPubKey = receiveScript;
+    txNew.vout[1].nValue = nFees;
+    }else{
+    txNew.vout.resize(1);
+    txNew.vout[0].scriptPubKey = receiveScript;
+    txNew.vout[0].nValue = amountToDistribute;
+    }
 }
-bool CheckForSyncStatus(){
-     if (!masternodeSync.IsSynced()) { //there is no budget data to use to check anything -- find the longest chain
+bool CheckForSyncStatus()
+{
+    if (!masternodeSync.IsSynced()) { //there is no budget data to use to check anything -- find the longest chain
         LogPrint("mnpayments", "Client not synced, skipping block payee checks\n");
         return false;
     }
     return true;
 }
+void checkEachMn(std::vector<CMasternode>& sortedMn, int64_t seconds, CMasternode mnNode)
+{
+	bool inserted =false;
+    if (sortedMn.size() > 0) {
+        for (size_t j = 0; j < sortedMn.size(); ++j) {
+            // int64_t activeSeconds = (sortedMn[j].lastPing == CMasternodePing()) ? 0 :
+            //                                                                       (int64_t)(sortedMn[j].lastPing.sigTime - sortedMn[j].sigTime);
+			 int64_t activeSeconds = sortedMn[j].sigTime;
+            if (activeSeconds >= seconds) {
+				inserted = true;
+                sortedMn.insert(sortedMn.begin() + j, mnNode);
+				break;
+            }
+        }
+    } else {
+		inserted = true;
+        sortedMn.push_back(mnNode);
+    }
+	if(!inserted){
+		 sortedMn.push_back(mnNode);
+	}
+}
+std::vector<CMasternode> sorMN(std::vector<CMasternode>& vMasternodes)
+{
+    std::vector<CMasternode> sortedMn;
+    BOOST_FOREACH (CMasternode mnNode, vMasternodes) {
+        // int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 :(int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
+		 int64_t activeSeconds = mnNode.sigTime;
+         checkEachMn(sortedMn, activeSeconds, mnNode);
+    }
+	return sortedMn;
+}
+void SelectMN(std::vector<CMasternode>& Masternodes, CBitcoinAddress lastRewardedMN, CScript& selectedMNScript)
+{
+    // Getting MN Vector
+	std::vector<CMasternode> vMasternodes = sorMN(Masternodes);
+    bool lastRewardedMNFound = false;
+    bool mnSelected = false;
+    // std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
+    BOOST_FOREACH (CMasternode& mnNode, vMasternodes) {
+        int64_t activeSeconds = (mnNode.lastPing == CMasternodePing()) ? 0 :
+                                                                         (int64_t)(mnNode.lastPing.sigTime - mnNode.sigTime);
+        CBitcoinAddress MnAddress(mnNode.pubkey.GetID());
+        bool matchAddress = CBitcoinAddress::compareAddresses(MnAddress, lastRewardedMN);
+        if (activeSeconds >= 86400 && matchAddress) {
+            lastRewardedMNFound = true;
+        } else if (lastRewardedMNFound && activeSeconds >= 86400) {
+            mnSelected = true;
+            selectedMNScript = GetScriptForDestination(mnNode.pubkey.GetID());
+            break;
+        }
+    }
+    if ((lastRewardedMNFound && !mnSelected) || (!lastRewardedMNFound && !mnSelected)) {
+        CBitcoinAddress MnAddress(vMasternodes.at(0).pubkey.GetID());
+        selectedMNScript = GetScriptForDestination(vMasternodes.at(0).pubkey.GetID());
+    }
+}
+void GetMN(std::vector<CMasternode>& vMasternodes, CScript* selectedMNScript)
+{
+    CScript selectedMn;
+    CBlockIndex* pindexPrev = chainActive.Tip();
+    CBlock block;
+    if (!ReadBlockFromDisk(block, pindexPrev)) {
+        // Handle if not able to read block
+    } else {
+        CTransaction& tx = block.vtx[0];
+        if (tx.IsCoinBase()) {
+            CScript pubScript = tx.vout[0].scriptPubKey;
+            CTxDestination address1;
+            ExtractDestination(pubScript, address1);
+            CBitcoinAddress address2(address1);
+            // SelectMN(vMasternodes,address2, selectedMNScript);
+        }
+    }
+}
+
+
 void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, int64_t nFees)
 {
+	CBlockIndex* pindexPrevious = chainActive.Tip();
+	if(pindexPrevious->nHeight>=60160)
+    {
+		CBitcoinAddress sendToMN;
     CBlockIndex* pindexPrev = chainActive.Tip();
     if (!pindexPrev)
         return;
     CAmount coinsPerNode = GetBlockValue(pindexPrev->nBits, pindexPrev->nHeight, nFees);
-    float distributeToMNS = coinsPerNode;
+    double distributeToMNS = coinsPerNode;
     std::vector<CScript> qualifiedNodes;
     bool payAllToMiner = false;
     CScript receiveScript;
     std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
-    if (vMasternodes.size() == 0) {
         LogPrintf("No Masternode Found %s\n");
-        makeCoinBaseTransactionForCustomMiner(coinsPerNode,txNew,nFees);
-       
-    } else {
-        BOOST_FOREACH (CMasternode& mn, vMasternodes) {
-            int64_t activeSeconds = (mn.lastPing == CMasternodePing()) ? 0 :
-                                                                         (int64_t)(mn.lastPing.sigTime - mn.sigTime);
-            if (activeSeconds >= 86400) {
-                receiveScript = GetScriptForDestination(mn.pubkey.GetID());
-                qualifiedNodes.push_back(receiveScript);
-            }
-        }
-        if (qualifiedNodes.size() == 0) {
-            makeCoinBaseTransactionForCustomMiner(coinsPerNode,txNew,nFees);
-        }
-         else {
-            distributeToMNS = (float)distributeToMNS / (float)qualifiedNodes.size();
-            txNew.vout.resize(qualifiedNodes.size());
-            for (std::vector<CScript>::size_type i = 0; i < qualifiedNodes.size(); i++) {
-                  txNew.vout[i].scriptPubKey = qualifiedNodes[i];
-                  txNew.vout[i].nValue = distributeToMNS;
-            }
-        }
-    }
+        makeCoinBaseTransactionForCustomMiner(coinsPerNode, txNew, nFees);
+}
 }
 int CMasternodePayments::GetMinMasternodePaymentsProto()
 {
@@ -695,19 +772,19 @@ bool CMasternodePaymentWinner::IsValid(CNode* pnode, std::string& strError)
         return false;
     }
 
-    int n = mnodeman.GetMasternodeRank(vinMasternode, nBlockHeight - 100, MIN_MNW_PEER_PROTO_VERSION);
+    // int n = mnodeman.GetMasternodeRank(vinMasternode, nBlockHeight - 100, MIN_MNW_PEER_PROTO_VERSION);
 
-    if (n > MNPAYMENTS_SIGNATURES_TOTAL) {
-        //It's common to have masternodes mistakenly think they are in the top 10
-        // We don't want to print all of these messages, or punish them unless they're way off
-        if (n > MNPAYMENTS_SIGNATURES_TOTAL * 2) {
-            strError = strprintf("Masternode not in the top %d (%d)", MNPAYMENTS_SIGNATURES_TOTAL, n);
-            LogPrintf("CMasternodePaymentWinner::IsValid - %s\n", strError);
-            if (masternodeSync.IsSynced())
-                Misbehaving(pnode->GetId(), 20);
-        }
-        return false;
-    }
+    // if (n > MNPAYMENTS_SIGNATURES_TOTAL) {
+    //     //It's common to have masternodes mistakenly think they are in the top 10
+    //     // We don't want to print all of these messages, or punish them unless they're way off
+    //     if (n > MNPAYMENTS_SIGNATURES_TOTAL * 2) {
+    //         strError = strprintf("Masternode not in the top %d (%d)", MNPAYMENTS_SIGNATURES_TOTAL, n);
+    //         LogPrintf("CMasternodePaymentWinner::IsValid - %s\n", strError);
+    //         if (masternodeSync.IsSynced())
+    //             Misbehaving(pnode->GetId(), 20);
+    //     }
+    //     return false;
+    // }
 
     return true;
 }
