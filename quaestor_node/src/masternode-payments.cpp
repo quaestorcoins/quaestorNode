@@ -190,7 +190,9 @@ void DumpMasternodePayments()
 bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount nFees,int height)
 {
 	    LogPrintf("IsBlockValueValid Executed\n");
-	int64_t actualAmountUnlocked = (nExpectedValue / 100000000) - (nFees / 100000000) ;
+	int64_t actualAmountUnlocked = (nExpectedValue / 100000000) - (nFees / 100000000);
+	if(height<=11)
+	return true;
 	if(height==167999 && actualAmountUnlocked == 50000)
 	 return true;
 	else if(actualAmountUnlocked == 7)
