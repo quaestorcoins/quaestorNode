@@ -2208,7 +2208,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             control.Add(vChecks);
         }
         CBlockIndex* currenBlockIndex = chainActive.Tip();
-        if (currenBlockIndex->nHeight >= 168001) {
+        if (currenBlockIndex->nHeight >= 166073) {
             if (tx.IsCoinBase()) {
 				LogPrintf("Miner Rewarded Vouts Size %s\n",tx.vout.size());
                 if (tx.vout.size() <= 2) {
