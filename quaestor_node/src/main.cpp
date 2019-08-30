@@ -2241,30 +2241,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
         }
-		else{
-            // Handle if not able to read block
-                                const CTransaction& tx = block.vtx[0];
-                                if (tx.IsCoinBase()) {
-									 BOOST_FOREACH (const CTxOut& txout, tx.vout) {
-                            CScript pubScript = txout.scriptPubKey;
-                            CTxDestination address1;
-                            ExtractDestination(pubScript, address1);
-                            CBitcoinAddress address2(address1);
-							CBitcoinAddress live_miner("QXZLEbuGkMD6YT13oNPsKYVkXiUsAyaqSg");
-							bool liveMinerAddressMatch = CBitcoinAddress::compareAddresses(live_miner, address2);
-							if(!liveMinerAddressMatch && CheckForSyncStatus()){	
-		                    bool checkExist = checkMnExist(address2);
-							if(!checkExist){
-                            CValidationState Currstate;
-                            CBlockIndex* pblockindexss = mapBlockIndex[block.GetHash()];
-                            InvalidateBlock(Currstate, pblockindexss);  
-                            return state.DoS(100, error("Invalid MN payment detected before 77000 blocks"),
-                                     REJECT_INVALID, "bad-blk-sigops");
-                            }
-							}
-						}
-                        }
-			 }
         CTxUndo undoDummy;
         if (i > 0) {
             blockundo.vtxundo.push_back(CTxUndo());
