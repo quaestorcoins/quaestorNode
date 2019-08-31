@@ -187,13 +187,15 @@ void DumpMasternodePayments()
     LogPrintf("Budget dump finished  %dms\n", GetTimeMillis() - nStart);
 }
 
-bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount nFees,int height)
+bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount nFees,int height, CAmount coinBaseValueOut)
 {
 	LogPrintf("IsBlockValueValid Executed\n");
 	
-	CAmount actualAmountUnlocked = nExpectedValue - nFees;
-	LogPrintf("actual amount unlocked %d fees %d height %d nExpectedValue %d \n",actualAmountUnlocked,nFees,height, nExpectedValue);
+	CAmount actualAmountUnlocked = coinBaseValueOut - nFees;
+	LogPrintf("actual amount unlocked %d fees %d height %d nExpectedValue %d \n",actualAmountUnlocked,nFees,height, coinBaseValueOut);
 	if(height<=100000)
+	return true;
+	if(height==166630 || height==166632)
 	return true;
 	else if((height==167499 || height==167500 ) && (actualAmountUnlocked == 5000000000000))
 	 return true;
