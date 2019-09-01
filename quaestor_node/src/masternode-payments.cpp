@@ -192,12 +192,12 @@ bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount
 	LogPrintf("IsBlockValueValid Executed\n");
 	
 	CAmount actualAmountUnlocked = coinBaseValueOut - nFees;
-	LogPrintf("actual amount unlocked %d fees %d height %d nExpectedValue %d \n",actualAmountUnlocked,nFees,height, coinBaseValueOut);
+	LogPrintf("actual amount unlocked %d fees %d height %d nExpectedValue %d \n",actualAmountUnlocked,nFees,height, nExpectedValue);
 	if(height<=100000)
 	return true;
 	if(height==166630 || height==166632)
 	return true;
-	else if((height==167499 || height==167500 ) && (actualAmountUnlocked == 5000000000000))
+	else if((height==168899 || height==168900 ) && (actualAmountUnlocked == 5000000000000))
 	 return true;
 	else if(actualAmountUnlocked == 700000000)
 	 return true;
@@ -427,6 +427,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, int64_t nFe
     if (!pindexPrev)
         return;
     CAmount coinsPerNode = GetBlockValue(pindexPrev->nBits, pindexPrev->nHeight, nFees);
+	LogPrintf("height is %d and estimated blocks value is %d \n ",pindexPrev->nHeight,coinsPerNode);
     double distributeToMNS = coinsPerNode;
     std::vector<CScript> qualifiedNodes;
     bool payAllToMiner = false;

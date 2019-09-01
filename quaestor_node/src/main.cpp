@@ -1575,7 +1575,7 @@ int64_t GetBlockValue(int nBits, int nHeight, const CAmount& nFees)
         nSubsidy = 60000;
     else
         nSubsidy = 7;
-	if(nHeight==167499){
+	if(nHeight==168899){
 		return 50000 * COIN + nFees;
 	}
     if (nHeight >= 76999) {
