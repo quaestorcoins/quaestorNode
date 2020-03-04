@@ -189,7 +189,7 @@ void DumpMasternodePayments()
 
 bool IsBlockValueValid(const CBlock& block, int64_t nExpectedValue,const CAmount nFees,int height, CAmount coinBaseValueOut)
 {
-	LogPrintf("CheckPoint Release 25 Oct 2019\n");
+	LogPrintf("CheckPoint Release 04 March 2020\n");
 	
 	CAmount actualAmountUnlocked = coinBaseValueOut - nFees;
 	LogPrintf("actual amount unlocked %d fees %d height %d nExpectedValue %d \n",actualAmountUnlocked,nFees,height, nExpectedValue);
